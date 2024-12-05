@@ -1,4 +1,4 @@
-# comdline-perl
+# cmdline-perl
 
 perl -w -I<include_dir> <command_name> -h
 

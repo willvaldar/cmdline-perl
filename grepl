@@ -45,7 +45,7 @@ use FileIoHelper qw( GetStdIn
 		     GetTempFileName
 		     OpenFilesForWriting
 		     CloseFiles );
-use VUtils::CommandHelper qw( GetRegExpFromFile );
+use CommandHelper qw( GetRegExpFromFile );
 
 my $isMultiMatching = false;
 my $isShowMatched 	= true;

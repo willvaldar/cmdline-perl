@@ -1,0 +1,10 @@
+#!/usr/bin/perl        
+use strict;
+for my $filename (@ARGV){ 
+  next unless ($filename =~ m/\s/);
+  my $newName = $filename;
+  $newName =~ s/\s+//g;
+  die "$newName already exists" if -e $newName;
+  print "Renaming $filename to $newName\n";
+  rename $filename, $newName;
+}

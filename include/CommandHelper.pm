@@ -1,4 +1,4 @@
-package VUtils::CommandHelper;
+package CommandHelper;
 
 use Exporter;
 use FileHandle;

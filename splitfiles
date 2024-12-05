@@ -1,0 +1,44 @@
+#!/usr/bin/perl -w
+use strict;
+use English;
+use StdDefs;
+use FileIoHelper;
+use Math qw(Apportion);
+
+2==@ARGV or die "splitfiles masterfile num_processors\n";
+
+my($inputFile, $numParts) = @ARGV;
+my $aLines = [OpenFilesForReading($inputFile)->getlines];
+my $size = @$aLines;
+
+my($numFiles1, $size1, $numFiles2, $size2) = Apportion($size, $numParts);
+my $count = 1;
+my $aSplitFiles = [];
+for (my $i=1; $i<=$numFiles1; $i++)
+{
+    my $start = $count;
+    my $end   = $count + $size1 - 1;
+    my $splitFile = $inputFile."_lines${start}_$end.split";
+    push @$aSplitFiles, $splitFile;
+    my $ost = OpenFilesForWriting($splitFile);
+    for (my $k=$start; $k<=$end; $k++)
+    {
+        $ost->print($aLines->[$k-1]);
+        ++$count;
+    }
+}
+for (my $i=1; $i<=$numFiles2; $i++)
+{
+    my $start = $count;
+    my $end   = $count + $size2 - 1;
+    my $splitFile = $inputFile."_lines${start}_$end.split";
+    push @$aSplitFiles, $splitFile;
+    my $ost = OpenFilesForWriting($splitFile);
+    for (my $k=$start; $k<=$end; $k++)
+    {
+        $ost->print($aLines->[$k-1]);
+        ++$count;
+    }
+}
+
+print map {"perlsh $ARG &\n"} @$aSplitFiles;

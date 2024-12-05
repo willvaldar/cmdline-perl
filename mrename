@@ -1,0 +1,181 @@
+#!/usr/bin/perl
+
+use English;
+use DirHandle;
+use Carp;
+use Getopt::Long;
+use strict;
+
+use FileIoHelper 	qw( GetDirContents );
+use VUtils::CommandHelper 	qw( GetRegExpFromFile );
+
+my $DirName 	= '.';
+my $RegExpFile 	= 're';
+
+my $aRegExp;
+my $aOldNames;
+my $aNewNames;
+
+$OUTPUT_AUTOFLUSH = 1;
+
+ParseCommandLine();
+
+$aRegExp 		 = GetRegExpFromFile($RegExpFile);
+
+($aOldNames, $aNewNames) = GetRenameLists($DirName, $aRegExp);
+
+unless( UserConfirmRename($aOldNames, $aNewNames) )
+{
+	exit(0);
+}
+
+RenameFiles($aOldNames, $aNewNames);
+
+#************************************************************
+# Subroutines
+#************************************************************
+
+sub TransformFileName
+{
+	my($fileName, $regExp) = @ARG;
+	my $code = '$fileName =~ ' . $regExp;
+	eval $code;
+	return $fileName;
+}
+
+sub GetRenameLists
+{
+	my($dirName, $aRegExp) = @ARG;
+
+	my $aAllFiles;
+	my $aOldNames;
+	my $aNewNames;
+
+	my $oldName;
+	my $newName;
+	my $regExp;
+
+	$aAllFiles = [@{GetDirContents($dirName)->{'files'}}, @{GetDirContents($dirName)->{'dirs'}}];
+	$aOldNames = [];
+	$aNewNames = [];
+	for $oldName (@$aAllFiles)
+	{
+		for $regExp (@$aRegExp)
+		{
+			$newName = TransformFileName($oldName, $regExp);
+			if($newName ne $oldName)
+			{
+				push @$aOldNames, "$dirName/$oldName";
+				push @$aNewNames, "$dirName/$newName";
+				last;
+			}
+		}
+	}
+	return ($aOldNames, $aNewNames);
+}
+
+sub UserConfirmRename
+{
+	my($aOldNames, $aNewNames) = @ARG;
+
+	my $nFilesToRename;
+	my $i;
+
+	$nFilesToRename = scalar(@$aNewNames);
+	print "Files to rename: $nFilesToRename\n";
+	for($i=0; $i<$nFilesToRename; $i++)
+	{
+		print "mv " . $aOldNames->[$i] . "  " . $aNewNames->[$i] . "\n";
+	}
+	print "Rename files? [y/n]:";
+	return (<STDIN> =~ m/^y/);
+}
+
+sub ParseCommandLine
+{
+	my %options = ();
+	my $correctArgList	= GetOptions
+				(
+					\%options,
+					'r:s',
+					'h',
+				);
+	if( not $correctArgList or $options{'h'} )
+	{
+		Usage();
+		exit(0);
+	}
+	if($options{'r'})
+	{
+		$RegExpFile = $options{'r'};
+	}
+	if(@ARGV)
+	{
+		$DirName = $ARGV[0];
+	}
+}
+
+sub RenameFiles
+{
+	my($aOldNames, $aNewNames) = @ARG;
+
+	my @aTmpNames;
+	my $tmpName;
+	my $oldName;
+	my $newName;
+	my $nFilesToRename = scalar(@$aOldNames);
+	my $i;
+
+	for($i=0; $i<$nFilesToRename; $i++)
+	{
+		$oldName = $aOldNames->[$i];
+		$tmpName = "renamer.$i.$PID.tmp";
+		if(not -e $tmpName)
+		{
+			if(rename $oldName, $tmpName)
+			{
+				push @aTmpNames, $tmpName;
+			}
+			else
+			{
+				carp "Warning: cannot rename $oldName to $tmpName!!!\n";
+			}
+		}
+		else
+		{
+			carp "Warning: $tmpName already exists!!! Can't rename $oldName\n";
+		}
+	}
+	for($i=0; $i<$nFilesToRename; $i++)
+	{
+		$tmpName = $aTmpNames[$i];
+		$newName = $aNewNames->[$i];
+		unless(rename $tmpName, $newName)
+		{
+			$oldName = $aOldNames->[$i];
+			carp "Warning: cannot rename $oldName to $newName; $oldName in $tmpName\n";
+		}
+	}
+}
+
+sub Usage
+{
+	print <<'EOU';
+
+	Syntax:	mrename [dirName] [-r regExpFile] [-h (help)]
+
+	Notes:
+
+	1. If dirName is not given, the program renames files in the current
+		working directory.
+
+	2. regExpFile must contain one perl regular expression per line, e.g.,
+		a regExpFile containing the lines
+
+				s/old/new/
+				s/^(p.*)\.htm$/$1.html/
+
+		will, for each filename, apply the first regexp and then
+		the second only if the first did not match.
+EOU
+}

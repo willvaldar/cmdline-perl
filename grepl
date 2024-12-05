@@ -1,0 +1,233 @@
+#!/usr/bin/perl
+#*********************************************************
+#
+# Title: pgrep	Version: 2.1 (perl grep)
+#
+# Author: William Valdar
+#
+# Last Modified: 2014-10-29
+# Created: 1998-10-16
+#
+# Syntax: grepl [ infile [outfile]] [--pattern=regex ] [-r regexpfile] [-v|-a] [-h] [-i]
+#
+# Description:
+# 	Pattern matches each line of input (file or pipe)
+# 	against each regexp in regexp file. Prints out
+#	each search string after it has matched.
+#	 If regexp file is not supplied, it defaults
+#	to a file in the cwd called 're'.
+#
+# Comments: pgrep, compare pgrepd.pl
+#
+# Options:
+#	-v	invert. Show only lines that don't match
+#		any of the patterns
+#	-a	show all. Show lines that match and lines
+#		that don't match. This is useful for
+#		substitution regular expressions
+#
+#	-i	edit file in-place. Requires exactly one
+#		file to be specified
+#
+#*********************************************************
+
+use English;
+use Carp;
+use Getopt::Long;
+use strict;
+use StdDefs;
+use Assert;
+use FileIoHelper qw( GetStdIn
+		     GetStdOut
+		     GetStdError
+		     FileIsBinary
+		     OpenFilesForReading
+		     GetTempFileName
+		     OpenFilesForWriting
+		     CloseFiles );
+use VUtils::CommandHelper qw( GetRegExpFromFile );
+
+my $isMultiMatching = false;
+my $isShowMatched 	= true;
+my $isShowUnmatched	= false;
+my $isEditInPlace	  = false;
+my $regExpFile 		  = './re';
+my $aRegExp         = undef;
+my $isLineMode      = true;
+my $isSegmentMode   = false;
+
+my @LETTERS = ('A'..'Z');
+my @letters = ('a'..'z');
+
+ProgMain();
+
+sub ProgMain() {
+	my $aInFiles = ParseCommandLine();
+
+	$aRegExp = GetRegExpFromFile($regExpFile) unless defined $aRegExp;
+
+	for my $inFile (@$aInFiles) {
+		if (FileIsBinary($inFile)) {
+			GetStdError->print("Skipping binary file: $inFile\n");
+			next;
+		}
+		my $ist = $inFile ? OpenFilesForReading($inFile) : GetStdIn();
+		if($isEditInPlace) {
+			my $tmpFile = GetTempFileName();
+			my $ost = OpenFilesForWriting($tmpFile);
+			ProcessFile($aRegExp, $ist, $ost);
+			CloseFiles($ist, $ost);
+			rename($tmpFile,$inFile) or Fatal("Cannot rename $tmpFile to $inFile");
+		}
+		else {
+			ProcessFile($aRegExp, $ist, GetStdOut());
+			CloseFiles($ist);
+		}
+	}
+}
+
+sub ProcessFile($$$) {
+	my($aRegExp, $ist, $ost) = @ARG;
+
+	my $i=0;	#-
+	my $j=0;	#- To allow for reg exps with counters
+	my $k=0;	#-
+  
+  my $aRegExpCode = [map {'$line =~ ' . $_} @$aRegExp];
+  
+	if ($isLineMode){
+  	while(my $line = $ist->getline()) {
+  		my $hasMatched = false;
+  		# regex 
+  		for my $re (@$aRegExpCode) { 
+  			if( eval $re ) {
+  				$hasMatched = true;
+  				if ( $isMultiMatching ){ next }  # keep matching/substituting
+  				else { last } # break after first match/substitution
+  			}
+      }
+  		# output options post-regex
+  		if($hasMatched) {
+  		  $ost->print($line) if $isShowMatched;
+  		}	else {
+  		  $ost->print($line) if $isShowUnmatched;
+  		}
+  	}
+  }
+  if ($isSegmentMode){
+    my($segStart, $segEnd) = @$aRegExpCode;
+		my $isInSegment = false;
+  	while(my $line = $ist->getline()) {
+  		# work out if we're in a segment
+  		if (eval $segStart) {$isInSegment = true;}
+      #
+  		if ($isInSegment){
+  		  $ost->print($line) if $isShowMatched;
+  		} else {
+  		  $ost->print($line) if $isShowUnmatched;
+      }
+  		if (eval $segEnd) {$isInSegment = false;}
+    }
+  }
+}
+
+#************************************************************
+# Subroutines
+#************************************************************
+
+sub ParseCommandLine {
+	my %options = ();
+	my $correctArgList	= GetOptions
+				(
+					\%options,
+					'r:s',
+					'a',
+					'v',
+					'h',
+					'i',
+					'm',
+					's',
+					'pattern:s',
+				);
+	my $aInFiles = (0 == @ARGV) ? [null] : [@ARGV];
+
+	# check for mistakes or help
+	if(not $correctArgList
+	or $options{'h'}
+	or $options{'a'} && $options{'v'}
+	or $options{'i'} && 0 == @ARGV) {
+		Usage();
+		exit(1);
+	}
+
+	# match all/ invert
+	if($options{'a'})	{
+		$isShowMatched 	 = true;
+		$isShowUnmatched = true;
+	}
+	elsif($options{'v'}) {
+		$isShowMatched 	 = false;
+		$isShowUnmatched = true;
+	}
+  
+  # line / segment mode
+  if ($options{'s'}){
+    $isSegmentMode = true;
+    $isLineMode    = false;
+  }
+
+	# get regular expression file if not default
+	if($options{'r'})	{
+		$regExpFile = $options{'r'};
+	}
+  if ($options{'m'}) {
+    $isMultiMatching = true;
+  }
+	if ($options{'pattern'}){
+		$aRegExp = [$options{'pattern'}];
+	}
+
+	# check for in-place editing and
+	# open relevant files
+	if($options{'i'}){
+		$isEditInPlace 	 = true;
+		$isShowMatched   = true;
+		$isShowUnmatched = true;
+	}
+	return $aInFiles;
+}
+
+sub Usage {
+	print <<"EOD";
+
+Syntax: 	
+ 
+ grepl 	[<options>] [file1 file2 ...] > outputFile
+
+  		options: [-r regexpfile] [-i|[-v|-a]|-s] [-h (help)]
+			[--pattern regexp ]
+
+Options:
+  -a	show all. Show lines that match and lines
+    that don't match. This is useful for
+    substitution regular expressions
+  -h	print help
+  -i	edit files in-place. Does not accept pipe
+  	or write to stdout. Shows all (ie, implicit -a).
+  -m  multi-matching: each line is matched against
+    every regex in regexpfile, in order of
+    the latters' appearance
+    (useful for substitution regexes)
+  -r <regExpFile>
+    specify file of perl regular expressions
+    (one per line). If regExpFile is not specfied
+    "./re" is used as default.
+  -s segment mode (as opposed to line mode).
+    Requires two regexes in regexpfile:
+    the first matches a segment start line;
+    the second matches a segment end line.
+  -v	invert. Show only lines that don't match
+    any of the patterns
+
+EOD
+}

@@ -1,0 +1,5 @@
+#!/usr/bin/perl -I/home/valdar/perl/include -w
+use strict;
+use Algorithm qw(RandomShuffle);
+
+print @{RandomShuffle([(<>)])};
